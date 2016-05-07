@@ -322,16 +322,16 @@ if __name__ == '__main__':
 
     print "data loaded..."
 
-    # model = Word2Vec.load_word2vec_format(pwd + '/GoogleNews-vectors-negative300.bin.gz', binary=True)
+    model = Word2Vec.load_word2vec_format(pwd + '/GoogleNews-vectors-negative300.bin.gz', binary=True)
 
     W_embed = np.random.randn(len(idx_word_map), 300)
 
     W_embed /= 100
 
-    # compress_word2vec(W_embed, model)
+    compress_word2vec(W_embed, model)
 
     with open(pwd + '/story_vocab.json', 'w') as outfile:
-        json.dump({idx_word_map: idx_word_map, word_idx_map: word_idx_map}, outfile)
+        json.dump({'idx_word_map': idx_word_map, 'word_idx_map': word_idx_map}, outfile)
 
     # ['test_sentence6', 'test_sentence4', 'test_sentence5', 'test_sentence2', 'test_sentence3', 'test_sentence1',
     #  'val_src_sentences_merged', 'train_sentence1', 'train_sentence3', 'train_sentence2', 'train_sentence5',
