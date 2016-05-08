@@ -6,7 +6,7 @@ import os, json
 import numpy as np
 import unicodedata
 import re
-from gensim.models.word2vec import Word2Vec
+# from gensim.models.word2vec import Word2Vec
 import time
 import sys
 
@@ -271,8 +271,7 @@ def merge_convert_src_sentences(data):
 
         data[cate + "_src_sentences_merged"] = converted
 
-
-def compress_word2vec(W_embed, model):
+def compress_embedding(W_embed, model):
     """
     We compress word2vec's 1.5G file with
     only the words we have
@@ -292,8 +291,42 @@ def compress_word2vec(W_embed, model):
         else:
             num_words_not_in += 1
 
-    print "words not in word2vec: ", num_words_not_in
+    print "words not in embedding: ", num_words_not_in
 
+def load_glove(src_filename):
+    """GloVe Reader.
+    
+    Parameters
+    ----------
+    src_filename : str
+        Full path to the GloVe file to be processed.
+
+    Returns
+    -------
+    dict
+        Mapping words to their GloVe vectors.
+    
+    """
+    reader = csv.reader(open(src_filename), delimiter=' ', quoting=csv.QUOTE_NONE)    
+    return {line[0]: np.array(list(map(float, line[1: ]))) for line in reader}
+
+def write_glove_embedding(embedding_dim):
+    print 'processing ' + str(embedding_dim) + '-dimensional glove embedding...'
+
+    model = load_glove(pwd + '/glove.6B/glove.6B.' + str(embedding_dim) + 'd.txt')
+
+    W_embed = np.random.randn(len(idx_word_map), embedding_dim)
+
+    W_embed /= 100
+
+    compress_embedding(W_embed, model)
+
+    # ['test_sentence6', 'test_sentence4', 'test_sentence5', 'test_sentence2', 'test_sentence3', 'test_sentence1',
+    #  'val_src_sentences_merged', 'train_sentence1', 'train_sentence3', 'train_sentence2', 'train_sentence5',
+    #  'train_sentence4', 'test_src_sentences_merged', 'val_sentence1', 'val_sentence2', 'val_sentence3', 'val_sentence4',
+    #  'val_sentence5', 'val_sentence6', 'y_test', 'y_val', 'train_src_sentences_merged']
+
+    np.savez_compressed(pwd + "/glove" + str(embedding_dim) + "_embed", W_embed=W_embed)
 
 if __name__ == '__main__':
     begin = time.time()
@@ -322,45 +355,11 @@ if __name__ == '__main__':
 
     print "data loaded..."
 
-    model = Word2Vec.load_word2vec_format(pwd + '/GoogleNews-vectors-negative300.bin.gz', binary=True)
-
-    W_embed = np.random.randn(len(idx_word_map), 300)
-
-    W_embed /= 100
-
-    compress_word2vec(W_embed, model)
-
     with open(pwd + '/story_vocab.json', 'w') as outfile:
         json.dump({'idx_word_map': idx_word_map, 'word_idx_map': word_idx_map}, outfile)
 
-    # ['test_sentence6', 'test_sentence4', 'test_sentence5', 'test_sentence2', 'test_sentence3', 'test_sentence1',
-    #  'val_src_sentences_merged', 'train_sentence1', 'train_sentence3', 'train_sentence2', 'train_sentence5',
-    #  'train_sentence4', 'test_src_sentences_merged', 'val_sentence1', 'val_sentence2', 'val_sentence3', 'val_sentence4',
-    #  'val_sentence5', 'val_sentence6', 'y_test', 'y_val', 'train_src_sentences_merged']
-
-    np.savez_compressed(pwd + "/snli_processed", W_embed=W_embed,
-                        train_sentence1=data['train_sentence1'],
-                        train_sentence2=data['train_sentence2'],
-                        train_sentence3=data['train_sentence3'],
-                        train_sentence4=data['train_sentence4'],
-                        train_sentence5=data['train_sentence5'],
-                        val_sentence1=data['val_sentence1'],
-                        val_sentence2=data['val_sentence2'],
-                        val_sentence3=data['val_sentence3'],
-                        val_sentence4=data['val_sentence4'],
-                        val_sentence5=data['val_sentence5'],
-                        val_sentence6=data['val_sentence6'],
-                        test_sentence1=data['test_sentence1'],
-                        test_sentence2=data['test_sentence2'],
-                        test_sentence3=data['test_sentence3'],
-                        test_sentence4=data['test_sentence4'],
-                        test_sentence5=data['test_sentence5'],
-                        test_sentence6=data['test_sentence6'],
-                        train_src_sentences_merged=data['train_src_sentences_merged'],
-                        val_src_sentences_merged=data['val_src_sentences_merged'],
-                        test_src_sentences_merged=data['test_src_sentences_merged'],
-                        y_val=data['y_val'],
-                        y_test=data['y_test'])
+    for embedding_dim in [50, 100, 200, 300]:
+        write_glove_embedding(embedding_dim)
 
     end = time.time()
 
