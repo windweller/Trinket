@@ -10,9 +10,9 @@ from gensim.models.word2vec import Word2Vec
 import time
 import sys
 
-word_idx_map = {'<NULL>': 0, '<UNK>': 1, '<END>': 2}
+word_idx_map = {'<NULL>': 0, '<UNK>': 1, '<END>': 2, '<START>': 3}
 
-idx_word_map = ['<NULL>', '<UNK>', '<END>']
+idx_word_map = ['<NULL>', '<UNK>', '<END>', '<START>']
 
 # we replace rare words with <UNK>, which shares the same vector
 word_count_map = {}  # length: 34044
@@ -238,6 +238,9 @@ def convert_words_to_idx(data):
             for i, sen in enumerate(dataX):
                 sen_idx = np.zeros(max_seq_len[sen_num - 1], dtype='int32')
 
+                if cate == 'val' or cate == 'test':
+                    sen_idx[0] = word_idx_map['<START>']
+
                 for j, word in enumerate(sen):
                     sen_idx[j] = word_idx_map[word]
 
@@ -308,6 +311,9 @@ if __name__ == '__main__':
 
     max_seq_len = [i + 1 for i in max_seq_len]  # index starts at 0
 
+    max_seq_len[4] += 1  # add a <START> symbol for decoding sentences
+    max_seq_len[5] += 1
+
     max_src_seq_len += 1
 
     print "max sequence stats: ", max_seq_len
@@ -322,13 +328,15 @@ if __name__ == '__main__':
 
     print "data loaded..."
 
-    model = Word2Vec.load_word2vec_format(pwd + '/GoogleNews-vectors-negative300.bin.gz', binary=True)
+    # model = Word2Vec.load_word2vec_format(pwd + '/GoogleNews-vectors-negative300.bin.gz', binary=True)
 
     W_embed = np.random.randn(len(idx_word_map), 300)
 
+    W_embed[0, :] = np.zeros(300, dtype='float32')
+
     W_embed /= 100
 
-    compress_word2vec(W_embed, model)
+    # compress_word2vec(W_embed, model)
 
     with open(pwd + '/story_vocab.json', 'w') as outfile:
         json.dump({'idx_word_map': idx_word_map, 'word_idx_map': word_idx_map}, outfile)
