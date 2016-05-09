@@ -241,10 +241,14 @@ def convert_words_to_idx(data):
                 if sen_num >= 5:
                     sen_idx[0] = word_idx_map['<START>']
 
+                end = 0
                 for j, word in enumerate(sen):
+                    if sen_num >= 5:
+                        j += 1
                     sen_idx[j] = word_idx_map[word]
+                    end = j
 
-                sen_idx[len(sen)] = word_idx_map['<END>']  # append <END> token to it
+                sen_idx[end+1] = word_idx_map['<END>']  # append <END> token to it
 
                 converted[i, :] = sen_idx
 
