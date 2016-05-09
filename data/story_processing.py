@@ -238,7 +238,7 @@ def convert_words_to_idx(data):
             for i, sen in enumerate(dataX):
                 sen_idx = np.zeros(max_seq_len[sen_num - 1], dtype='int32')
 
-                if cate == 'val' or cate == 'test':
+                if sen_num >= 5:
                     sen_idx[0] = word_idx_map['<START>']
 
                 for j, word in enumerate(sen):
