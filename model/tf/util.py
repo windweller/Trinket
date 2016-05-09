@@ -1,3 +1,6 @@
+import json
+
+
 def decode_sentences(sentences, idx_to_word):
     """
     Decode the sentence
@@ -30,6 +33,7 @@ def decode_sentences(sentences, idx_to_word):
         decoded = decoded[0]
     return decoded
 
+
 def decode_sentences_list(sentence, idx_to_word):
     """
     This assumes sentence is a list []
@@ -46,3 +50,23 @@ def decode_sentences_list(sentence, idx_to_word):
         if word == '<END>':
             break
     return decoded
+
+
+def load_vocab(vocab_file_path):
+    """
+
+    Parameters
+    ----------
+    vocab_file_path
+
+    Returns
+    -------
+    tuple
+        (word_idx_map, idx_word_map)
+    """
+    with open(vocab_file_path, 'r') as f:
+        vocab = json.load(f)
+        word_idx_map = vocab['word_idx_map']
+        idx_word_map = vocab['idx_word_map']
+
+    return word_idx_map, idx_word_map
