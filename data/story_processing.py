@@ -350,7 +350,7 @@ if __name__ == '__main__':
     #  'train_sentence4', 'test_src_sentences_merged', 'val_sentence1', 'val_sentence2', 'val_sentence3', 'val_sentence4',
     #  'val_sentence5', 'val_sentence6', 'y_test', 'y_val', 'train_src_sentences_merged']
 
-    np.savez_compressed(pwd + "/snli_processed", W_embed=W_embed,
+    np.savez_compressed(pwd + "/story_processed", W_embed=W_embed,
                         train_sentence1=data['train_sentence1'],
                         train_sentence2=data['train_sentence2'],
                         train_sentence3=data['train_sentence3'],
