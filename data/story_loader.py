@@ -77,21 +77,21 @@ class StoryLoader(object):
                 print decode_sentences(self.splits['train_tgt'][0, 1, :], idx_word_map)
 
             # split val into train and val again
-            _, self.splits['train_tgt1'] = self._split_batch(
+            self.train_num_batches, self.splits['train_tgt1'] = self._split_batch(
                 val_sentence5[:train_par * batch_size],
                 tgt_seq_len)
             _, self.splits['train_tgt2'] = self._split_batch(
                 val_sentence6[:train_par * batch_size],
                 tgt_seq_len)
 
-            _, self.splits['val_tgt1'] = self._split_batch(
+            self.val_num_batches, self.splits['val_tgt1'] = self._split_batch(
                 val_sentence5[train_par * batch_size:],
                 tgt_seq_len)
             _, self.splits['val_tgt2'] = self._split_batch(
                 val_sentence6[train_par * batch_size:],
                 tgt_seq_len)
 
-            _, self.splits['test_tgt1'] = self._split_batch(
+            self.test_num_batches, self.splits['test_tgt1'] = self._split_batch(
                 test_sentence5,
                 tgt_seq_len)
             _, self.splits['test_tgt2'] = self._split_batch(
@@ -165,7 +165,7 @@ class StoryLoader(object):
         else:
             raise NotImplementedError
 
-    def get_batch(self, split, batch_id):
+    def get_batch(self, split, batch_id, label_size=2):
         """
 
         Parameters
@@ -181,12 +181,15 @@ class StoryLoader(object):
 
         """
         x = self.splits[split + '_src'][batch_id]
-        # TODO: why am I feeding in both sentences?
-        # TODO: binary prediction, we only need 1 sentence
+        # NOTE: why am I feeding in both sentences?
+        # binary prediction, we only need 1 sentence
+
+        # TODO: maybe concatenate two sentences? (will help softmax more?)
         y = self.splits[split + '_tgt1'][batch_id]
+        y_2 = self.splits[split + '_tgt2'][batch_id]
         label = self.splits['y_' + split][batch_id]
 
-        return x, y, label
+        return x, (y, y_2), label
 
 if __name__ == '__main__':
     # offers some testing for the class

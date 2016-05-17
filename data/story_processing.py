@@ -248,7 +248,7 @@ def convert_words_to_idx(data):
                     sen_idx[j] = word_idx_map[word]
                     end = j
 
-                sen_idx[end+1] = word_idx_map['<END>']  # append <END> token to it
+                sen_idx[end + 1] = word_idx_map['<END>']  # append <END> token to it
 
                 converted[i, :] = sen_idx
 
@@ -300,6 +300,63 @@ def compress_word2vec(W_embed, model):
             num_words_not_in += 1
 
     print "words not in word2vec: ", num_words_not_in
+
+
+def load_glove(src_filename):
+    """GloVe Reader.
+
+    Parameters
+    ----------
+    src_filename : str
+        Full path to the GloVe file to be processed.
+    Returns
+    -------
+    dict
+        Mapping words to their GloVe vectors.
+
+    """
+    reader = csv.reader(open(src_filename), delimiter=' ', quoting=csv.QUOTE_NONE)
+    return {line[0]: np.array(list(map(float, line[1:]))) for line in reader}
+
+
+def compress_embedding(W_embed, model):
+    """
+    We compress word2vec's 1.5G file with
+    only the words we have
+    update W_embed
+    word2vec: the word2vec model we loaded
+    Returns:
+    """
+
+    num_words_not_in = 0
+
+    for i, word in enumerate(idx_word_map):
+        if word in model:
+            W_embed[i, :] = model[word]
+        else:
+            num_words_not_in += 1
+
+    print "words not in embedding: ", num_words_not_in
+
+
+def write_glove_embedding(embedding_dim):
+    print 'processing ' + str(embedding_dim) + '-dimensional glove embedding...'
+
+    model = load_glove(pwd + '/glove.6B/glove.6B.' + str(embedding_dim) + 'd.txt')
+
+    W_embed = np.random.randn(len(idx_word_map), embedding_dim)
+    W_embed[0, :] = np.zeros(embedding_dim, dtype='float32')
+
+    W_embed /= 100
+
+    compress_embedding(W_embed, model)
+
+    # ['test_sentence6', 'test_sentence4', 'test_sentence5', 'test_sentence2', 'test_sentence3', 'test_sentence1',
+    #  'val_src_sentences_merged', 'train_sentence1', 'train_sentence3', 'train_sentence2', 'train_sentence5',
+    #  'train_sentence4', 'test_src_sentences_merged', 'val_sentence1', 'val_sentence2', 'val_sentence3', 'val_sentence4',
+    #  'val_sentence5', 'val_sentence6', 'y_test', 'y_val', 'train_src_sentences_merged']
+
+    np.savez_compressed(pwd + "/glove" + str(embedding_dim) + "_embed", W_embed=W_embed)
 
 
 if __name__ == '__main__':
