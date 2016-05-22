@@ -21,6 +21,8 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import control_flow_ops
 
 from tensorflow.python.ops.seq2seq import attention_decoder
+from data.story_loader import StoryLoader
+from os.path import join as pjoin
 
 import numpy as np
 
@@ -105,6 +107,8 @@ def attention_encoder(decoder_inputs, initial_state, attention_states,
         It is a 2D Tensor of shape (batch_size x cell.state_size).
 
     """
+    decoder_inputs = [decoder_inputs]  # in original model this is a bucket list of inputs
+
     with vs.variable_scope(scope or "attention_encoder"):
         batch_size = array_ops.shape(decoder_inputs[0])[0]
         attn_length = attention_states.get_shape()[1].value
@@ -118,7 +122,7 @@ def attention_encoder(decoder_inputs, initial_state, attention_states,
     for a in xrange(num_heads):
         k = vs.get_variable("AttnW_%d" % a,
                             [1, 1, attn_size, attention_vec_size])
-        hidden_features.append(tf.nn_ops.conv2d(hidden, k, [1, 1, 1, 1], "SAME"))
+        hidden_features.append(tf.nn.conv2d(hidden, k, [1, 1, 1, 1], "SAME"))
         v.append(vs.get_variable("AttnV_%d" % a, [attention_vec_size]))
 
     def attention(query):
@@ -131,7 +135,7 @@ def attention_encoder(decoder_inputs, initial_state, attention_states,
                 # Attention mask is a softmax of v^T * tanh(...).
                 s = math_ops.reduce_sum(
                     v[a] * math_ops.tanh(hidden_features[a] + y), [2, 3])
-                a = tf.nn_ops.softmax(s)
+                a = tf.nn.softmax(s)
                 # Now calculate the attention-weighted vector d.
                 d = math_ops.reduce_sum(
                     array_ops.reshape(a, [-1, attn_length, 1, 1]) * hidden,
@@ -309,16 +313,16 @@ class StorySeq2SeqModel(object):
                 How many are in a batch
             time_steps: int
                 Number of time steps (max sequence length)
-            hidden_dim: int
+            rnn_dim: int
                 number of units in each layer of the model. (same as 'size' in seq2seq)
             vocab_size: int
                 number of vocab in the corpus (maybe split it to target_vocab_size
                 and src_vocab_size is better?)
-            num_layers: int
+            rlayers: int
                 number of layers in the model.
             num_heads: int
                 number of encoder states we want attention to work on (should be ALL)
-            max_gradient_norm: int
+            max_norm: int
                 gradients will be clipped to maximally this norm. (set to 5.0 in translate.py)
             lr: float
             lr_decay: float
@@ -330,12 +334,12 @@ class StorySeq2SeqModel(object):
                 if set, we do not construct the backward pass in the model. (no learning)
         """
         self.args = args
-        self.learning_rate = tf.Variable(float(args.learning_rate), trainable=False)
+        self.learning_rate = tf.Variable(float(args.lr), trainable=False)
         self.learning_rate_decay_op = self.learning_rate.assign(
             self.learning_rate * args.lr_decay)
         self.embedding = embedding
         self.label_size = 2
-        self.hidden_dim = self.args.hidden_dim
+        self.hidden_dim = self.args.rnn_dim
 
         if self.args.num_heads == 0:
             # paying attention to all encoder states
@@ -349,9 +353,9 @@ class StorySeq2SeqModel(object):
         self.y_labels = tf.placeholder(dtype=tf.int32, shape=[None, self.label_size], name='y_labels')
 
         # multilayer
-        cell = Unit[args.unit](args.hidden_dim)
-        if args.num_layers > 1:
-            cell = tf.nn.rnn_cell.MultiRNNCell([cell] * args.num_layers)
+        cell = Unit[args.unit](self.hidden_dim)
+        if args.rlayers > 1:
+            cell = tf.nn.rnn_cell.MultiRNNCell([cell] * args.rlayers)
 
         # calculate loss and output
         with vs.variable_scope(vs.get_variable_scope()):
@@ -416,6 +420,7 @@ class StorySeq2SeqModel(object):
         total_loss = []
         total_correct_examples = 0
         total_processed_examples = 0
+        exp_cost = 0.
 
         total_steps = loader.train_num_batches
 
@@ -430,13 +435,25 @@ class StorySeq2SeqModel(object):
             feed = {self.encoder_inputs: x, self.decoder_inputs: y,
                     self.y_labels: tf.one_hot(label, self.label_size, on_value=1, off_value=0)}
 
-            # TODO: verify this part...see if it's correct or anything
+            # this part should work
             loss, total_correct, _ = session.run(
-                [self.loss, self.correct_predictions, self.train_op],
+                [self.cost, self.correct_predictions, self.train_op],
                 feed_dict=feed)
             total_processed_examples += len(x)
             total_correct_examples += total_correct
             total_loss.append(loss)
+
+            exp_cost += loss
+
+            if verbose and it % verbose == 0:
+                sys.stdout.write('\r{} / {} : loss = {}'.format(
+                    k, total_steps, np.mean(total_loss)))
+                sys.stdout.flush()
+            if verbose:
+                sys.stdout.write('\r')
+                sys.stdout.flush()
+
+        return np.mean(total_loss), total_correct_examples / float(total_processed_examples)
 
     def output_projection(self, h):
         """
@@ -456,11 +473,15 @@ class StorySeq2SeqModel(object):
             return output
 
 
+def to_parent(path):
+    return os.path.abspath(pjoin(path, os.pardir))
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--rnn_dim', type=int, default=256, help='dimension of recurrent states')
     parser.add_argument('--rlayers', type=int, default=2, help='number of hidden layers for RNNs')
-    parser.add_argument('--unroll', type=int, default=50, help='number of time steps to unroll for')
+    parser.add_argument('--unroll', type=int, default=35, help='number of time steps to unroll for source')
     parser.add_argument('--batch_size', type=int, default=50, help='size of batches')
     parser.add_argument('--lr', type=float, default=2e-3, help='learning rate')
     parser.add_argument('--lr_decay', type=float, default=0.5, help='learning rate decay')
@@ -482,11 +503,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_frac', type=float, default=0.95, help='fraction of text file to use for training data')
     parser.add_argument('--valid_frac', type=float, default=0.05,
                         help='fraction of text file to use for validation data')
-    # parser.add_argument('--batch_norm', dest='batch_norm', action='store_true')
-    # parser.add_argument('--data', type=str, default='CHAR',
-    #                     help='CHAR=CHAR_FILE, PTB=PTB_FILE, specify to indicate corpus')
-    # parser.add_argument('--toktype', type=str, default='char', choices=['char', 'word'],
-    #                     help='use word or character-level tokens')
+    parser.add_argument('--num_heads', type=int, default=1, help='how long input sequence to pay attention to')
     parser.add_argument('--seed', type=int, default=1234, help='random seed')
     parser.add_argument('--forward_only', type=bool, default=False, help="forward only = True meaning we don't train")
     # parser.add_argument('--load_model', type=str, default='',
@@ -494,10 +511,25 @@ if __name__ == '__main__':
     # parser.add_argument('--save_vis', type=str, default='', help='dir to save visualization, will back off to expdir')
     # parser.add_argument('--vis_style', type=str, default='real', choices=['andrej', 'real', 'histogram', 'datadump'],
     #                     help='andrej visualization, or real average activation values')
+    # parser.add_argument('--batch_norm', dest='batch_norm', action='store_true')
+    # parser.add_argument('--data', type=str, default='CHAR',
+    #                     help='CHAR=CHAR_FILE, PTB=PTB_FILE, specify to indicate corpus')
+    # parser.add_argument('--toktype', type=str, default='char', choices=['char', 'word'],
+    #                     help='use word or character-level tokens')
 
     parser.set_defaults(batch_norm=False)
 
     args = parser.parse_args()
     np.random.seed(args.seed)
 
+    args.time_steps = args.unroll
+
     # word_idx_map, idx_word_map = load_vocab('')
+    curr = os.path.dirname(os.path.realpath(__file__))
+    root = to_parent(to_parent(curr))
+
+    loader = StoryLoader(pjoin(root, 'data/story_processed.npz'),
+                         batch_size=50, src_seq_len=65,
+                         tgt_seq_len=20, mode='merged')
+    embedding = loader.get_w2v_embed().astype('float32')
+    model = StorySeq2SeqModel(embedding, args)

@@ -5,11 +5,12 @@ and can be iterated by batches
 """
 
 import numpy as np
+import sys
 
 
 class StoryLoader(object):
     def __init__(self, npz_file, batch_size, src_seq_len, tgt_seq_len,
-                 train_frac=0.95, valid_frac=0.05, mode='merged', debug=False):
+                 train_frac=0.9, valid_frac=0.05, mode='merged', debug=False):
         """
         Parameters
         ----------
@@ -39,19 +40,25 @@ class StoryLoader(object):
             self.pre_train_num_batches, self.splits['pre_train'] = self._split_batch(train_src_sens_merged,
                                                                                      src_seq_len)
             # make sure we don't lose a batch due to rounding
-            N = val_src_sens_merged.shape[0]
+            N = val_src_sens_merged.shape[0] + test_src_sens_merged.shape[0]
             partitions = N / self.batch_size
-            train_par = int(np.round(partitions * 0.95))
+            train_par = int(np.round(partitions * train_frac))
+            val_par = int(np.round(partitions * valid_frac))
+
+            assert train_frac + valid_frac < 1.
+
+            whole = np.concatenate((val_src_sens_merged, test_src_sens_merged), axis=0)
 
             self.train_num_batches, self.splits['train_src'] = self._split_batch(
-                val_src_sens_merged[:train_par * batch_size],
+                whole[:train_par * batch_size],
                 src_seq_len)
+
             self.val_num_batches, self.splits['val_src'] = self._split_batch(
-                val_src_sens_merged[train_par * batch_size:],
+                whole[train_par * batch_size: (train_par + val_par) * batch_size],
                 src_seq_len)
 
             self.test_num_batches, self.splits['test_src'] = self._split_batch(
-                test_src_sens_merged,
+                whole[(train_par + val_par) * batch_size:],
                 src_seq_len
             )
 
@@ -77,36 +84,43 @@ class StoryLoader(object):
                 print decode_sentences(self.splits['train_tgt'][0, 1, :], idx_word_map)
 
             # split val into train and val again
+            whole_sentence5 = np.concatenate((val_sentence5, test_sentence5), axis=0)
+            whole_sentence6 = np.concatenate((val_sentence6, test_sentence6), axis=0)
+
+            # pad up sentence6 (because it's 18 instead of 20)
+            whole_sentence6 = np.pad(whole_sentence6, ((0,0), (0,2)), mode='constant', constant_values=0)
+
             self.train_num_batches, self.splits['train_tgt1'] = self._split_batch(
-                val_sentence5[:train_par * batch_size],
+                whole_sentence5[:train_par * batch_size],
                 tgt_seq_len)
             _, self.splits['train_tgt2'] = self._split_batch(
-                val_sentence6[:train_par * batch_size],
-                tgt_seq_len)
+                whole_sentence6[:train_par * batch_size], tgt_seq_len)
 
             self.val_num_batches, self.splits['val_tgt1'] = self._split_batch(
-                val_sentence5[train_par * batch_size:],
+                whole_sentence5[train_par * batch_size: (train_par + val_par) * batch_size],
                 tgt_seq_len)
             _, self.splits['val_tgt2'] = self._split_batch(
-                val_sentence6[train_par * batch_size:],
+                whole_sentence6[train_par * batch_size: (train_par + val_par) * batch_size],
                 tgt_seq_len)
 
             self.test_num_batches, self.splits['test_tgt1'] = self._split_batch(
-                test_sentence5,
+                whole_sentence5[(train_par + val_par) * batch_size:],
                 tgt_seq_len)
             _, self.splits['test_tgt2'] = self._split_batch(
-                test_sentence6,
+                whole_sentence6[(train_par + val_par) * batch_size:],
                 tgt_seq_len)
 
             # there's an ugly fix to preprocessing error on y_val
+            all_ys = np.concatenate((y_val[0], y_test), axis=0)
+
             _, self.splits['y_train'] = self._split_batch(
-                y_val[0][:train_par * batch_size], 0)
+                all_ys[:train_par * batch_size], 0)
 
             _, self.splits['y_val'] = self._split_batch(
-                y_val[0][train_par * batch_size:], 0)
+                all_ys[train_par * batch_size: (train_par + val_par) * batch_size], 0)
 
             _, self.splits['y_test'] = self._split_batch(
-                y_test, 0)
+                all_ys[(train_par + val_par) * batch_size:], 0)
 
         elif self.mode == 'seperate':
             raise NotImplementedError
@@ -177,19 +191,26 @@ class StoryLoader(object):
         -------
         tuple
             we will decide based on the "self.mode" information
-            to give back either (merged_src, y, label) or ([src1, src2...], y, label)
+            to give back either (merged_src, (y1, y2), label) or ([src1, src2...], y, label)
 
         """
         x = self.splits[split + '_src'][batch_id]
-        # NOTE: why am I feeding in both sentences?
-        # binary prediction, we only need 1 sentence
 
-        # TODO: maybe concatenate two sentences? (will help softmax more?)
         y = self.splits[split + '_tgt1'][batch_id]
         y_2 = self.splits[split + '_tgt2'][batch_id]
         label = self.splits['y_' + split][batch_id]
 
         return x, (y, y_2), label
+
+    def get_w2v_embed(self):
+        """
+        Returns
+        -------
+        |V| x D shape matrix
+        The default word embedding matrix
+        """
+        return self.data_pt['W_embed']
+
 
 if __name__ == '__main__':
     # offers some testing for the class
@@ -200,3 +221,15 @@ if __name__ == '__main__':
 
     loader.get_pretrain_batch(1)
     loader.get_batch('train', 1)
+    x, (y, y_2), label = loader.get_batch('val', 2)
+
+    from model.tf.util import decode_sentences, load_vocab
+
+    word_idx_map, idx_word_map = load_vocab(
+        '/Users/Aimingnie/Documents/School/Stanford/CS 224N/DeepLearning/allen/trident/data/story_vocab.json')
+
+    # remember the range of y_label is 1 and 2
+    print decode_sentences(x[1], idx_word_map)
+    print decode_sentences(y[1], idx_word_map)
+    print decode_sentences(y_2[1], idx_word_map)
+    print label[1]
