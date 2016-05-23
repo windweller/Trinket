@@ -64,7 +64,7 @@ class RNNTargetEncoder(RNN):
         # initial states
         # [(batch_size, rnn_dim)]
         # outputs_info = [T.zeros((target_sqn.shape[1], args.rnn_dim)).astype(floatX)]
-        outputs_info = init_states  # should be a list of list
+        outputs_info = init_states  # should be a list of things...(check RNNDecoder)
         rlayers = list()
 
         inp = L_dec[target_sqn]
@@ -243,6 +243,8 @@ if __name__ == '__main__':
         raise NotImplementedError
 
     start_epoch = 0
+
+    logger.info('building model...')
     story_model = StoryModelSeq2Seq(args, embedding, attention=args.attention)
 
     logger.info('# params: %d' % story_model.nparams)

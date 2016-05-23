@@ -12,9 +12,13 @@ def get_logger(expdir):
     handler = logging.FileHandler(
         pjoin(expdir, 'log.txt')
     )
+    consoleHandler = logging.StreamHandler()
     logger.addHandler(handler)
     formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
+
+    consoleHandler.setFormatter(formatter)
+    logger.addHandler(consoleHandler)
     return logger
 
 def setup_exp(args):
