@@ -117,7 +117,6 @@ class StoryModelSeq2Seq(object):
             # x, xr, mask, space_mask, L_enc, pdrop, args
             self.encoder = BiRNNEncoder(src_sent.T, rev_src_sent.T, src_mask.T, space_mask.T, self.embedding, pdrop,
                                         args)
-            # TODO: add init state
         else:
             print 'Using unidirectional GRU encoder'
             self.encoder = RNNEncoder(src_sent.T, src_mask.T, space_mask.T, self.embedding, pdrop, args)
@@ -128,7 +127,6 @@ class StoryModelSeq2Seq(object):
                                                    args)
             hs = self.tgt_encoder.hs
         else:
-            # TODO: not working
             self.tgt_encoder = RNNTargetEncoder(self.encoder.out, tgt_sent.T, tgt_mask.T, self.embedding, labels, pdrop,
                                                 args)
 
