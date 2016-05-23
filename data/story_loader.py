@@ -200,7 +200,8 @@ class StoryLoader(object):
         y_2 = self.splits[split + '_tgt2'][batch_id]
         label = self.splits['y_' + split][batch_id]
 
-        return x, (y, y_2), label
+        # bring down the label range from 1, 2 to 0, 1
+        return x, (y, y_2), label.flatten() - 1
 
     def get_w2v_embed(self):
         """

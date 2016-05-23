@@ -114,7 +114,7 @@ class RNNEncoder(RNN):
         self.subset = L_enc[x.flatten()]
         inp = self.subset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
         seqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
-        inplayer = GRULayer(inp.astype(floatX), mask, seqmask, args.rnn_dim, outputs_info,
+        inplayer = GRULayer(inp.astype(floatX), mask, seqmask, args.input_size, outputs_info,
                 args, suffix='%s0' % suffix_prefix, backwards=backwards)
         rlayers.append(inplayer)
         for k in xrange(1, args.rlayers):
@@ -131,7 +131,8 @@ class RNNEncoder(RNN):
         # will extract A[lens[k], k, :] for k in [0, batch size)
         self.routs = list()
         for rlayer in rlayers:
-            rout = rlayer.out[lens - 1, theano.tensor.arange(x.shape[1]), :].astype(floatX)
+            # get the last time steps (what's this doing with batch???)
+            rout = rlayer.out[args.src_steps - 1, theano.tensor.arange(x.shape[1]), :].astype(floatX)
             self.routs.append(rout)
         self.hs = rlayers[-1].out  # for attention
 
@@ -188,15 +189,20 @@ class BiRNNEncoder(RNN):
         outputs_info = [T.zeros((x.shape[1], args.rnn_dim)).astype(floatX)]
         flayers = list()
         blayers = list()
-        fsubset = L_enc[x.flatten()]
-        bsubset = L_enc[xr.flatten()]
-        finp = fsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
-        binp = bsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
+
+        finp = L_enc[x]
+        binp = L_enc[xr]
+
+        # fsubset = L_enc[x.flatten()]
+        # bsubset = L_enc[xr.flatten()]
+        # finp = fsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
+        # binp = bsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
+
         fseqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
         bseqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
-        finplayer = GRULayer(finp.astype(floatX), mask, fseqmask, args.rnn_dim, outputs_info,
+        finplayer = GRULayer(finp.astype(floatX), mask, fseqmask, args.input_size, outputs_info,
                 args, suffix='fenc0')
-        binplayer = GRULayer(binp.astype(floatX), mask, bseqmask, args.rnn_dim, outputs_info,
+        binplayer = GRULayer(binp.astype(floatX), mask, bseqmask, args.input_size, outputs_info,
                 args, suffix='benc0', backwards=True)
         flayers.append(finplayer)
         blayers.append(binplayer)
