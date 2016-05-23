@@ -255,6 +255,7 @@ if __name__ == '__main__':
     epoch_cost_dict = dict()
 
     all_train_accu = list()
+    mean_train_accu = list()
     all_valid_accu = list()
     mean_valid_accus = list()
     epoch_accu_dict = dict()
@@ -308,6 +309,8 @@ if __name__ == '__main__':
                 logger.info('epoch %d, iter %d, cost %f, expcost %f, batch time %f, grad/param norm %f, accuracy %f' % \
                             (epoch + 1, it, cost, expcost, toc - tic, norm_ratio, train_accuracy))
 
+        mean_train_accu.append(np.mean(curr_train_accu))
+
         logger.info('epoch %d, mean training accuracy: %f' % (epoch + 1, np.mean(curr_train_accu)))
         # run on validation
         valid_costs = []
@@ -355,8 +358,8 @@ if __name__ == '__main__':
 
     final_test_cost = sum(test_costs) / float(len(test_costs))
     final_test_accu = sum(test_accu) / float(len(test_accu))
-    logger.info('best training accuracy: %f' % max(all_train_accu))
-    logger.info('best validation accuracy: %f' % max(all_valid_accu))
+    logger.info('best training accuracy: %f' % max(mean_train_accu))
+    logger.info('best validation accuracy: %f' % max(mean_valid_accus))
     logger.info('final test accuracy: %f' % final_test_accu)
     logger.info('best validation cost: %f' % epoch_cost_dict[best_valid_epoch])
     logger.info('final test cost using epoch %d parameters: %f' % (best_valid_epoch, final_test_cost))
