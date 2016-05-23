@@ -182,7 +182,8 @@ if __name__ == '__main__':
     import logging
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--rnn_dim', type=int, default=1000, help='dimension of recurrent states and embeddings')
+    # rnn_dim 1000 before
+    parser.add_argument('--rnn_dim', type=int, default=512, help='dimension of recurrent states and embeddings')
     parser.add_argument('--rlayers', type=int, default=1, help='number of hidden layers for RNNs')
     parser.add_argument('--batch_size', type=int, default=50, help='size of batches')
     parser.add_argument('--input_size', type=int, default=300, help='size of x input, embed size')
@@ -356,8 +357,8 @@ if __name__ == '__main__':
     final_test_accu = sum(test_accu) / float(len(test_accu))
     logger.info('best training accuracy: %f' % max(all_train_accu))
     logger.info('best validation accuracy: %f' % max(all_valid_accu))
-    logger.info('best validation cost: %f' % epoch_cost_dict[best_valid_epoch])
     logger.info('final test accuracy: %f' % final_test_accu)
+    logger.info('best validation cost: %f' % epoch_cost_dict[best_valid_epoch])
     logger.info('final test cost using epoch %d parameters: %f' % (best_valid_epoch, final_test_cost))
 
     bigtoc = time.time()
