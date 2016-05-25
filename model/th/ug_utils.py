@@ -96,6 +96,9 @@ def plot_activations(activations, args, left_sat=.1, right_sat=.9):
 
 # XXX refactor / split this file up
 
+def get_parent(fname):
+    return os.path.abspath(os.path.join(fname, os.pardir))
+
 def save_model_params(model, fname):
     f = h5py.File(fname, 'w')
     names = [str(p) for p in model.params]
