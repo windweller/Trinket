@@ -17,13 +17,28 @@ from os.path import join as pjoin
 from data.story_loader import StoryLoader
 import cPickle as pickle
 
-Unit = {'gru': GRULayer, 'lstm': LSTMLayer}
+
+def prep_tgt_sens(tgt1, tgt2, args):
+    # tgt1: (time_step, N, embed_size)
+    # return vector, and input_size (for first-layer in RNN Layers)
+
+    if args.vector_mode == 'sub':
+        return tgt1 - tgt2, args.input_size
+    elif args.vector_mode == 'concat':
+        concatenated = T.concatenate([tgt1, tgt2], axis=2)
+        return concatenated, args.input_size * 2
+    elif args.vector_mode == 'tgt1':
+        return tgt1, args.input_size
+    else:
+        raise NotImplementedError
 
 
 class RNNEncoderAttention(RNN):
-    def __init__(self, encoder, target_sqn, label, mask, L_dec, pdrop, args):
+    # used for target encoding
+    def __init__(self, encoder, target_sqn, target2_sqn, label, mask, L_dec, pdrop, args):
         # target_sqn: (time_step, N)
         self.hs = encoder.hs
+        self.input_size = args.input_size
 
         # NOTE just use this so only last layer uses attention
         def layer_init(attention):
@@ -33,21 +48,21 @@ class RNNEncoderAttention(RNN):
                 return lambda *largs, **kwargs: GRULayerAttention(self.hs, *largs, **kwargs)
 
         # initial states
-        outputs_info = [T.zeros_like(self.hs[0]) for k in xrange(len(encoder.routs))]
+        outputs_info = encoder.out
         rlayers = list()
 
         inp = L_dec[target_sqn]
         attention = args.rlayers == 1
         # exclude last prediction
         seqmask = get_sequence_dropout_mask((target_sqn.shape[0], target_sqn.shape[1], L_dec.shape[1]), pdrop)
-        inplayer = layer_init(attention)(inp[:-1].astype(floatX), mask[:-1], seqmask[:-1], args.input_size,
+        inplayer = layer_init(attention)(inp.astype(floatX), mask, seqmask, self.input_size,
                                          outputs_info[0], args, suffix='tgtenc0')
         rlayers.append(inplayer)
         for k in xrange(1, args.rlayers):
             attention = (args.rlayers == k + 1)
             seqmask = get_sequence_dropout_mask((target_sqn.shape[0], target_sqn.shape[1], args.rnn_dim), pdrop)
-            rlayer = layer_init(attention)(Dropout(rlayers[-1].out, pdrop).out, mask[:-1],
-                                           seqmask[:-1], args.rnn_dim, outputs_info[k], args, suffix='dec%d' % k)
+            rlayer = layer_init(attention)(Dropout(rlayers[-1].out, pdrop).out, mask,
+                                           seqmask, args.rnn_dim, outputs_info[k], args, suffix='dec%d' % k)
             rlayers.append(rlayer)
         # we only classify the final state
         olayer = LogisticRegression(Dropout(rlayers[-1].out, pdrop).out[-1, :, :], args.rnn_dim,
@@ -57,7 +72,7 @@ class RNNEncoderAttention(RNN):
 
 
 class RNNTargetEncoder(RNN):
-    def __init__(self, init_states, target_sqn, mask, L_dec, label, pdrop, args, suffix_prefix='tgtEnc'):
+    def __init__(self, init_states, target_sqn, target2_sqn, label, mask, L_dec, pdrop, args, suffix_prefix='tgtEnc'):
         # exactly like above but without attention
         # target_sqn: (time_step, N)
 
@@ -67,11 +82,14 @@ class RNNTargetEncoder(RNN):
         outputs_info = init_states  # should be a list of things...(check RNNDecoder)
         rlayers = list()
 
-        inp = L_dec[target_sqn]
+        target_inp1 = L_dec[target_sqn]
+        target_inp2 = L_dec[target2_sqn]
+
+        inp, self.input_size = prep_tgt_sens(target_inp1, target_inp2, args)
 
         # exclude last prediction
-        seqmask = get_sequence_dropout_mask((target_sqn.shape[0], target_sqn.shape[1], L_dec.shape[1]), pdrop)
-        inplayer = GRULayer(inp.astype(floatX), mask, seqmask, args.input_size, outputs_info[0],
+        seqmask = get_sequence_dropout_mask((target_sqn.shape[0], target_sqn.shape[1], self.input_size), pdrop)
+        inplayer = GRULayer(inp.astype(floatX), mask, seqmask, self.input_size, outputs_info[0],
                             args, suffix='%s0' % suffix_prefix, backwards=False)
 
         rlayers.append(inplayer)
@@ -89,6 +107,7 @@ class RNNTargetEncoder(RNN):
         super(RNNTargetEncoder, self).__init__(rlayers, olayer, cost)
 
 
+
 class StoryModelSeq2Seq(object):
     def __init__(self, args, embedding, attention=False):
         self.args = args
@@ -104,13 +123,18 @@ class StoryModelSeq2Seq(object):
         lr = T.scalar(dtype=floatX)
         pdrop = T.scalar(dtype=floatX)
         max_norm = T.scalar(dtype=floatX)
-        src_sent = T.imatrix('src_sent')  # (time_step, batch_size) We do x.T before put it in
+        src_sent = T.imatrix('src_sent')  # (batch_size, time_step) We do x.T before put it in
         rev_src_sent = T.imatrix('rev_src_sent')  # for reverse, use reverse_sent()
         tgt_sent = T.imatrix('tgt_sent')
         space_mask = T.bmatrix('space_mask')
 
         src_mask = T.ones_like(src_sent).astype(floatX)  # this is used to drop words? Now we don't
         tgt_mask = T.ones_like(tgt_sent).astype(floatX)  # this is used to drop words? Now we don't
+
+        # we are taking a 2nd target sentence for
+        # target encoder
+        # we merge this with tgt_sent inside Encoder
+        tgt2_sent = T.imatrix('tgt2_sent')  # second target sentence (N, T)
 
         if args.bidir:
             print('Using bidirectional GRU encoder')
@@ -122,12 +146,15 @@ class StoryModelSeq2Seq(object):
             self.encoder = RNNEncoder(src_sent.T, src_mask.T, space_mask.T, self.embedding, pdrop, args)
 
         if attention:
-            # encoder, target_sqn, label, mask, L_dec, pdrop, args
-            self.tgt_encoder = RNNEncoderAttention(self.encoder, tgt_sent.T, labels, tgt_mask.T, self.embedding, pdrop,
+            # encoder, target_sqn, target2_sqn, label, mask, L_dec, pdrop, args
+            self.tgt_encoder = RNNEncoderAttention(self.encoder, tgt_sent.T, tgt2_sent.T, labels,
+                                                   tgt_mask.T, self.embedding, pdrop,
                                                    args)
             hs = self.tgt_encoder.hs
         else:
-            self.tgt_encoder = RNNTargetEncoder(self.encoder.out, tgt_sent.T, tgt_mask.T, self.embedding, labels, pdrop,
+            # init_states, target_sqn, target2_sqn, label, mask, L_dec, pdrop
+            self.tgt_encoder = RNNTargetEncoder(self.encoder.out, tgt_sent.T, tgt2_sent.T, labels,
+                                                tgt_mask.T, self.embedding, pdrop,
                                                 args)
 
         # cost, parameters, grads, updates
@@ -144,7 +171,7 @@ class StoryModelSeq2Seq(object):
         # functions
         if args.bidir:
             self.train = theano.function(
-                inputs=[src_sent, rev_src_sent, tgt_sent, labels,
+                inputs=[src_sent, rev_src_sent, tgt_sent, tgt2_sent, labels,
                         pdrop, lr, max_norm],
                 outputs=[self.cost, self.grad_norm, self.param_norm, self.tgt_encoder.olayer.y_pred],
                 updates=self.updates,
@@ -152,21 +179,21 @@ class StoryModelSeq2Seq(object):
                 allow_input_downcast=True
             )
             self.test = theano.function(
-                inputs=[src_sent, rev_src_sent, tgt_sent, labels, theano.In(pdrop, value=0.0)],
+                inputs=[src_sent, rev_src_sent, tgt_sent, tgt2_sent, labels, theano.In(pdrop, value=0.0)],
                 outputs=[self.cost, self.tgt_encoder.olayer.y_pred],
                 updates=None,
                 on_unused_input='warn'
             )
         else:
             self.train = theano.function(
-                inputs=[src_sent, tgt_sent, labels, pdrop, lr, max_norm],
+                inputs=[src_sent, tgt_sent, tgt2_sent, labels, pdrop, lr, max_norm],
                 outputs=[self.cost, self.grad_norm, self.param_norm, self.tgt_encoder.olayer.y_pred],
                 updates=self.updates,
                 on_unused_input='warn',
                 allow_input_downcast=True
             )
             self.test = theano.function(
-                inputs=[src_sent, tgt_sent, labels, theano.In(pdrop, value=0.0)],
+                inputs=[src_sent, tgt_sent, tgt2_sent, labels, theano.In(pdrop, value=0.0)],
                 outputs=[self.cost, self.tgt_encoder.olayer.y_pred],
                 updates=None,
                 on_unused_input='warn'
@@ -220,6 +247,7 @@ if __name__ == '__main__':
                         help='which embedding to load in')
     parser.add_argument('--attention', action='store_true',
                         help='whether we want to turn on attention')  # we don't use this
+    parser.add_argument('--vector_mode', type=str, default='tgt1', choices=['tgt1', 'concat', 'sub'])
 
     args = parser.parse_args()
 
@@ -289,7 +317,7 @@ if __name__ == '__main__':
             it += 1
             x, (y, y_2), real_label = loader.get_batch('train', k)
             # [src_sent, tgt_sent, labels, pdrop, lr, max_norm]
-            ret = story_model.train(x, y, real_label, args.dropout, lr, args.max_norm)
+            ret = story_model.train(x, y, y_2, real_label, args.dropout, lr, args.max_norm)
             cost, grad_norm, param_norm, train_preds = ret[0:4]
 
             train_accuracy = np.mean(real_label == train_preds)
@@ -318,7 +346,7 @@ if __name__ == '__main__':
         for k in xrange(loader.val_num_batches):
             x, (y, y_2), real_label = loader.get_batch('val', k)
             # [src_sent, tgt_sent, labels, theano.In(pdrop, value=0.0)]
-            ret = story_model.test(x, y, real_label, 0.0)
+            ret = story_model.test(x, y, y_2, real_label, 0.0)
             cost, preds = ret[0:2]
 
             val_accuracy = np.mean(real_label == preds)
@@ -348,7 +376,7 @@ if __name__ == '__main__':
     test_costs = list()
     for k in xrange(loader.test_num_batches):
         x, (y, y_2), real_label = loader.get_batch('test', k)
-        ret = story_model.test(x, y, real_label, 0.0)
+        ret = story_model.test(x, y, y_2, real_label, 0.0)
         cost, preds = ret[0:2]
 
         accu = np.mean(real_label == preds)

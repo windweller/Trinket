@@ -134,7 +134,7 @@ class RNNEncoder(RNN):
             # get the last time steps (what's this doing with batch???)
             rout = rlayer.out[args.src_steps - 1, theano.tensor.arange(x.shape[1]), :].astype(floatX)
             self.routs.append(rout)
-        self.hs = rlayers[-1].out  # for attention
+        self.hs = rlayers[-1].out  # for attention (last layer's output) (Timestep, batch_size, rnn_dim)
 
         olayer = LayerWrapper(self.routs)
         super(RNNEncoder, self).__init__(rlayers, olayer)
@@ -192,11 +192,6 @@ class BiRNNEncoder(RNN):
 
         finp = L_enc[x]
         binp = L_enc[xr]
-
-        # fsubset = L_enc[x.flatten()]
-        # bsubset = L_enc[xr.flatten()]
-        # finp = fsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
-        # binp = bsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
 
         fseqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
         bseqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
