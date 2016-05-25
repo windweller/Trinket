@@ -60,7 +60,7 @@ class RNNDecoder(RNN):
         inp = self.subset.reshape((y.shape[0], y.shape[1], L_dec.shape[1]))
         seqmask = get_sequence_dropout_mask((y.shape[0], y.shape[1], L_dec.shape[1]), pdrop)
         # exclude last prediction
-        inplayer = GRULayer(inp[:-1].astype(floatX), mask[:-1], seqmask[:-1], args.rnn_dim,
+        inplayer = GRULayer(inp[:-1].astype(floatX), mask[:-1], seqmask[:-1], args.input_size,
                 outputs_info[0], args, suffix='dec0')
         rlayers.append(inplayer)
         for k in xrange(1, args.rlayers):

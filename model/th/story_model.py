@@ -5,7 +5,7 @@ from theano import tensor as T
 from ug_utils import floatX, Dropout, save_model_params, load_model_params
 from rnn import (RNN, SequenceLogisticRegression, LogisticRegression, GRULayer, GRULayerAttention,
                  LayerWrapper, seq_cat_crossent, Downscale, cross_entropy)
-from encdec_shared import BiRNNEncoder, reverse_sent, RNNEncoder, RNNDecoderAttention
+from encdec_shared import BiRNNEncoder, reverse_sent, RNNEncoder, RNNDecoderAttention, RNNDecoder
 from opt import get_opt_fn
 from ug_utils import (glorot_init, norm_init, uniform_init,
                       get_sequence_dropout_mask, _linear_params, get_parent)
@@ -163,7 +163,7 @@ class StoryModelSeq2Seq(object):
         if args.pretrain:
             # encoder, y, mask, L_dec, pdrop, args
             # tgt_sent is the real last sentence
-            self.tgt_decoder = RNNDecoderAttention(self.encoder, tgt_sent.T, tgt_mask.T, self.embedding,
+            self.tgt_decoder = RNNDecoder(self.encoder.out, tgt_sent.T, tgt_mask.T, self.embedding,
                                                    pdrop, args)
             self.pretrain_cost = self.tgt_decoder.cost
             self.pretrain_params = self.encoder.params + self.tgt_decoder.params
