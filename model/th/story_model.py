@@ -300,19 +300,18 @@ if __name__ == '__main__':
     bigtic = time.time()
     for epoch in xrange(start_epoch, args.epochs):
 
-        # if epoch >= args.lr_decay_after and args.optimizer not in ['adam']:
-        # lr = lr * args.lr_decay
-        if len(mean_valid_costs) > 1 and mean_valid_costs[-2] - mean_valid_costs[-1] < args.lr_decay_threshold:
-            decayed += 1
-            if mean_valid_costs[-2] - mean_valid_costs[-1] < 0:
-                logger.info('changing parameters back to epoch %d' % (epoch - 1))
-                load_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % (epoch - 1)))
-            if decayed > args.max_lr_decays:
-                break
-            logger.info('annealing at epoch %d from %f to %f' % (epoch, lr, lr * args.lr_decay))
-            decay_epochs.append(epoch)
-            # if we did worse this validation epoch load last epoch's parameters
-            lr = lr * args.lr_decay
+        if epoch >= args.lr_decay_after:
+            if len(mean_valid_costs) > 1 and mean_valid_costs[-2] - mean_valid_costs[-1] < args.lr_decay_threshold:
+                decayed += 1
+                if mean_valid_costs[-2] - mean_valid_costs[-1] < 0:
+                    logger.info('changing parameters back to epoch %d' % (epoch - 1))
+                    load_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % (epoch - 1)))
+                if decayed > args.max_lr_decays:
+                    break
+                logger.info('annealing at epoch %d from %f to %f' % (epoch, lr, lr * args.lr_decay))
+                decay_epochs.append(epoch)
+                # if we did worse this validation epoch load last epoch's parameters
+                lr = lr * args.lr_decay
 
         it = 0
         curr_train_accu = []  # training accuracy for the current batch
