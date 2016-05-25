@@ -38,7 +38,6 @@ class RNNEncoderAttention(RNN):
     def __init__(self, encoder, target_sqn, target2_sqn, label, mask, L_dec, pdrop, args):
         # target_sqn: (time_step, N)
         self.hs = encoder.hs
-        self.input_size = args.input_size
 
         # NOTE just use this so only last layer uses attention
         def layer_init(attention):
@@ -51,7 +50,12 @@ class RNNEncoderAttention(RNN):
         outputs_info = encoder.out
         rlayers = list()
 
-        inp = L_dec[target_sqn]
+        target_inp1 = L_dec[target_sqn]
+        target_inp2 = L_dec[target2_sqn]
+
+        inp, self.input_size = prep_tgt_sens(target_inp1, target_inp2, args)
+        # inp = L_dec[target_sqn]
+
         attention = args.rlayers == 1
         # exclude last prediction
         seqmask = get_sequence_dropout_mask((target_sqn.shape[0], target_sqn.shape[1], L_dec.shape[1]), pdrop)
