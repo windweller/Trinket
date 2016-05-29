@@ -337,10 +337,10 @@ if __name__ == '__main__':
                              batch_size=args.batch_size, src_seq_len=65,
                              tgt_seq_len=20, train_frac=0.9, valid_frac=0.05, mode='merged')
     else:
-        # we only train on 20% of validation for the target encoder
+        # we only train on 40% of validation for the target encoder
         loader = StoryLoader(STORY_DATA_PATH,
                              batch_size=args.batch_size, src_seq_len=65,
-                             tgt_seq_len=20, train_frac=0.2, valid_frac=0.5, mode='merged')
+                             tgt_seq_len=20, train_frac=0.2, valid_frac=0.3, mode='merged')
 
     if args.embed == 'w2v':
         embedding = loader.get_w2v_embed().astype('float32')
