@@ -460,12 +460,12 @@ if __name__ == '__main__':
             pretrain_epoch_cost_dict[epoch] = mean_valid_cost
 
             logger.info('saving model')
-            save_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % epoch))
+            save_model_params(story_model, pjoin(args.expdir, 'pretrain_model_epoch%d.pk' % epoch))
 
 
         best_valid_epoch = sorted(pretrain_epoch_cost_dict, key=pretrain_epoch_cost_dict.get)[0]
         # restore model at best validation epoch
-        load_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % best_valid_epoch))
+        load_model_params(story_model, pjoin(args.expdir, 'pretrain_model_epoch%d.pk' % best_valid_epoch))
 
         test_costs = list()
         for k in xrange(loader.test_num_batches):
