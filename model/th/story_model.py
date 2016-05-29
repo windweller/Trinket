@@ -409,7 +409,7 @@ if __name__ == '__main__':
                     decayed += 1
                     if pretrain_mean_valid_costs[-2] - pretrain_mean_valid_costs[-1] < 0:
                         logger.info('changing parameters back to epoch %d' % (epoch - 1))
-                        load_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % (epoch - 1)))
+                        load_model_params(story_model, pjoin(args.expdir, 'pretrain_model_epoch%d.pk' % (epoch - 1)))
                     if decayed > args.max_lr_decays:
                         break
                     logger.info('annealing at epoch %d from %f to %f' % (epoch, lr, lr * args.lr_decay))
