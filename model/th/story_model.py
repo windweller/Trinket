@@ -164,7 +164,7 @@ class StoryModelSeq2Seq(object):
             # encoder, y, mask, L_dec, pdrop, args
             # tgt_sent is the real last sentence
             self.tgt_decoder = RNNDecoder(self.encoder.out, tgt_sent.T, tgt_mask.T, self.embedding,
-                                                   pdrop, args)
+                                          pdrop, args)
             self.pretrain_cost = self.tgt_decoder.cost
             self.pretrain_params = self.encoder.params + self.tgt_decoder.params
 
@@ -179,6 +179,14 @@ class StoryModelSeq2Seq(object):
                 inputs=[src_sent, tgt_sent, pdrop, lr, max_norm],
                 outputs=[self.pretrain_cost, self.pretrain_grad_norm, self.pretrain_param_norm],
                 updates=self.pretrain_updates,
+                on_unused_input='warn',
+                allow_input_downcast=True
+            )
+
+            self.pretrain_test = theano.function(
+                inputs=[src_sent, tgt_sent, theano.In(pdrop, value=0.0)],
+                outputs=[self.pretrain_cost],
+                updates=None,
                 on_unused_input='warn',
                 allow_input_downcast=True
             )
@@ -240,6 +248,7 @@ def decode(t, i, idx_word_map):
 
 
 def save_result(loc, x, y_1, y_2, real_label, pred_label, idx_word_map):
+    # this saves predicted result to a directory location
     import csv
     with open(loc, 'a') as f:
         w = csv.writer(f)
@@ -313,7 +322,7 @@ if __name__ == '__main__':
         with open(pjoin(args.load_model, 'opts.json'), 'r') as fin:
             loaded_opts = json.load(fin)
             for k in loaded_opts:
-                if k not in ['expdir', 'load_model', 'seed']:
+                if k not in ['expdir', 'load_model', 'seed', 'save_err']:
                     setattr(args, k, loaded_opts[k])
         logger.info(args)
 
@@ -322,16 +331,23 @@ if __name__ == '__main__':
     word_idx_map, idx_word_map = load_vocab(VOCAB_PATH)
     vocab_size = len(idx_word_map)
 
-    loader = StoryLoader(STORY_DATA_PATH,
-                         batch_size=args.batch_size, src_seq_len=65,
-                         tgt_seq_len=20, mode='merged')
+    if not args.pretrain:
+        # we train on validation/test sets
+        loader = StoryLoader(STORY_DATA_PATH,
+                             batch_size=args.batch_size, src_seq_len=65,
+                             tgt_seq_len=20, train_frac=0.9, valid_frac=0.05, mode='merged')
+    else:
+        # we only train on 20% of validation for the target encoder
+        loader = StoryLoader(STORY_DATA_PATH,
+                             batch_size=args.batch_size, src_seq_len=65,
+                             tgt_seq_len=20, train_frac=0.2, valid_frac=0.5, mode='merged')
 
     if args.embed == 'w2v':
         embedding = loader.get_w2v_embed().astype('float32')
     else:
         raise NotImplementedError
 
-    args.tgt_vocab_size = embedding.shape[0] # must obtain it here
+    args.tgt_vocab_size = embedding.shape[0]  # must obtain it here
 
     start_epoch = 0
 
@@ -376,18 +392,22 @@ if __name__ == '__main__':
     pretrain_time = 0
     if args.pretrain:
         # we pretrain here
+        # use validation to train
         bigtic = time.time()
-        all_train_costs = list()
-        mean_train_costs = list()
+        pretrain_all_train_costs = list()  # at every batch
+        pretrain_all_valid_costs = list()  # at every batch
+        pretrain_mean_valid_costs = list()  # at end of every epoch
+        pretrain_epoch_cost_dict = dict()
+
         decayed = 0
         decay_epochs = list()
         expcost = None
         for epoch in xrange(start_epoch, args.epochs):
             # still want to decay learning rate
             if epoch >= args.lr_decay_after:
-                if len(mean_train_costs) > 1 and mean_train_costs[-2] - mean_train_costs[-1] < args.lr_decay_threshold:
+                if len(pretrain_mean_valid_costs) > 1 and pretrain_mean_valid_costs[-2] - pretrain_mean_valid_costs[-1] < args.lr_decay_threshold:
                     decayed += 1
-                    if mean_train_costs[-2] - mean_train_costs[-1] < 0:
+                    if pretrain_mean_valid_costs[-2] - pretrain_mean_valid_costs[-1] < 0:
                         logger.info('changing parameters back to epoch %d' % (epoch - 1))
                         load_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % (epoch - 1)))
                     if decayed > args.max_lr_decays:
@@ -398,19 +418,16 @@ if __name__ == '__main__':
                     lr = lr * args.lr_decay
 
             it = 0
-            curr_train_cost = []
-
-            for k in xrange(loader.pre_train_num_batches):
+            for k in xrange(loader.pretrain_num_batches):
                 tic = time.time()
                 it += 1
-                x, y = loader.get_pretrain_batch(k)
+                x, y = loader.get_pretrain_batch('train', k)
                 # src_sent, tgt_sent, pdrop, lr, max_norm
                 ret = story_model.pretrain(x, y, args.dropout, lr, args.max_norm)
                 cost, grad_norm, param_norm = ret[0:3]
 
                 norm_ratio = grad_norm / param_norm
-                all_train_costs.append(cost)
-                curr_train_cost.append(cost)
+                pretrain_all_train_costs.append(cost)
 
                 if not expcost:
                     expcost = cost
@@ -422,8 +439,45 @@ if __name__ == '__main__':
                     logger.info('pretrain epoch %d, iter %d, cost %f, expcost %f, batch time %f, grad/param norm %f' % \
                                 (epoch + 1, it, cost, expcost, toc - tic, norm_ratio))
 
-            mean_train_costs.append(np.mean(curr_train_cost))
-            logger.info('pretrain epoch %d, mean training accuracy: %f' % (epoch + 1, np.mean(curr_train_cost)))
+            logger.info('saving model')
+            save_model_params(story_model, pjoin(args.expdir, 'pretrain_model_epoch%d.pk' % epoch))
+
+            # run on validation
+            valid_costs = []
+            valid_accu = []
+            for k in xrange(loader.preval_num_batches):
+                x, y = loader.get_pretrain_batch('val', k)
+
+                ret = story_model.pretrain_test(x, y, 0.0)
+                cost = ret[0]
+
+                pretrain_all_valid_costs.append(cost)
+                valid_costs.append(cost)  # local
+
+            mean_valid_cost = sum(valid_costs) / float(len(valid_costs))
+            pretrain_mean_valid_costs.append(mean_valid_cost)
+            logger.info('validation cost: %f' % (mean_valid_cost))
+            pretrain_epoch_cost_dict[epoch] = mean_valid_cost
+
+            logger.info('saving model')
+            save_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % epoch))
+
+
+        best_valid_epoch = sorted(pretrain_epoch_cost_dict, key=pretrain_epoch_cost_dict.get)[0]
+        # restore model at best validation epoch
+        load_model_params(story_model, pjoin(args.expdir, 'model_epoch%d.pk' % best_valid_epoch))
+
+        test_costs = list()
+        for k in xrange(loader.test_num_batches):
+            x, y = loader.get_pretrain_batch('test', k)
+            ret = story_model.pretrain_test(x, y, 0.0)
+            cost = ret[0]
+
+            test_costs.append(cost)
+
+        best_pretrain_valid_cost = pretrain_epoch_cost_dict[best_valid_epoch]
+        final_pretrain_test_cost = sum(test_costs) / float(len(test_costs))
+
         bigtoc = time.time()
         pretrain_time = bigtoc - bigtic
 
@@ -537,7 +591,8 @@ if __name__ == '__main__':
     final_test_accu = sum(test_accu) / float(len(test_accu))
 
     if args.pretrain:
-        logger.info('final pretraining cost: %f' % min(mean_train_costs))
+        logger.info('Best pretraining validation cost: %f' % best_pretrain_valid_cost)
+        logger.info('Final pretraining test cost: %f' % final_pretrain_test_cost)
         logger.info('total pretraining time: %f m' % (pretrain_time / 60.))
         logger.info('')
 

@@ -5,6 +5,7 @@ from os.path import join as pjoin
 import cPickle as pickle
 from ug_utils import load_model_params
 
+
 def get_logger(expdir):
     # log to file and console
     logger = logging.getLogger()
@@ -20,6 +21,7 @@ def get_logger(expdir):
     consoleHandler.setFormatter(formatter)
     logger.addHandler(consoleHandler)
     return logger
+
 
 def setup_exp(args):
     expdir = args.expdir
@@ -50,7 +52,6 @@ def setup_exp(args):
 
     return logger, opts
 
-
 # decprecated
 def load_model_and_opts(args, logger):
     logger.info('loading model...')
@@ -62,11 +63,13 @@ def load_model_and_opts(args, logger):
         logger.info(opts)
     return model, opts
 
+
 # deprecated
 def restore_model_and_opts(model_fn, args, logger):
     class OptsStruct:
         def __init__(self, **entries):
             self.__dict__.update(entries)
+
     with open(pjoin(args.expdir, 'opts.json'), 'r') as fin:
         opts = json.load(fin)
         logger.info(opts)

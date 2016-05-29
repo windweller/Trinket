@@ -9,7 +9,7 @@ import sys
 
 
 class StoryLoader(object):
-    def __init__(self, npz_file, batch_size, src_seq_len, tgt_seq_len,
+    def __init__(self, npz_file, batch_size, src_seq_len, tgt_seq_len, pretrain_split=[0.9, 0.05, 0.05],
                  train_frac=0.9, valid_frac=0.05, mode='merged', debug=False):
         """
         Parameters
@@ -27,6 +27,10 @@ class StoryLoader(object):
         self.batch_size = batch_size
         self.src_seq_len = src_seq_len
         self.tgt_seq_len = tgt_seq_len
+        self.pretrain_split = pretrain_split
+        self.pretrain_frac = pretrain_split[0]
+        self.preval_frac = pretrain_split[1]
+        self.pretest_frac = pretrain_split[2]
         self.train_frac = train_frac
         self.valid_frac = valid_frac
         self.mode = mode
@@ -37,8 +41,37 @@ class StoryLoader(object):
             test_src_sens_merged = self.data_pt['test_src_sentences_merged']
 
             self.splits = dict()
-            self.pre_train_num_batches, self.splits['pre_train'] = self._split_batch(train_src_sens_merged,
-                                                                                     src_seq_len)
+
+            # ===== splitting pretrain =======
+            N = train_src_sens_merged.shape[0]
+            partitions = N / self.batch_size
+            train_par = int(np.round(partitions * self.pretrain_frac))
+            val_par = int(np.round(partitions * self.preval_frac))
+            self.pretrain_num_batches, self.splits['pre_train'] = self._split_batch(
+                train_src_sens_merged[:train_par * batch_size],
+                src_seq_len)
+            self.preval_num_batches, self.splits['pre_val'] = self._split_batch(
+                train_src_sens_merged[train_par * batch_size: (train_par + val_par) * batch_size],
+                src_seq_len)
+            self.pretest_num_batches, self.splits['pre_test'] = self._split_batch(
+                train_src_sens_merged[(train_par + val_par) * batch_size:],
+                src_seq_len)
+
+            train_sentence5 = self.data_pt['train_sentence5']
+
+            _, self.splits['pre_train_tgt'] = self._split_batch(
+                train_sentence5[:train_par * batch_size],
+                tgt_seq_len)
+
+            _, self.splits['pre_val_tgt'] = self._split_batch(
+                train_sentence5[train_par * batch_size: (train_par + val_par) * batch_size],
+                tgt_seq_len)
+
+            _, self.splits['pre_test_tgt'] = self._split_batch(
+                train_sentence5[(train_par + val_par) * batch_size:],
+                tgt_seq_len)
+
+            # ======= splitting valid/test =====
             # make sure we don't lose a batch due to rounding
             N = val_src_sens_merged.shape[0] + test_src_sens_merged.shape[0]
             partitions = N / self.batch_size
@@ -62,7 +95,6 @@ class StoryLoader(object):
                 src_seq_len
             )
 
-            train_sentence5 = self.data_pt['train_sentence5']
             val_sentence5 = self.data_pt['val_sentence5']
             val_sentence6 = self.data_pt['val_sentence6']
             test_sentence5 = self.data_pt['test_sentence5']
@@ -70,10 +102,6 @@ class StoryLoader(object):
 
             y_val = self.data_pt['y_val'],
             y_test = self.data_pt['y_test']
-
-            _, self.splits['pre_train_tgt'] = self._split_batch(
-                train_sentence5,
-                tgt_seq_len)
 
             if debug:
                 from model.tf.util import decode_sentences, load_vocab
@@ -158,12 +186,13 @@ class StoryLoader(object):
 
         return partitions, s
 
-    def get_pretrain_batch(self, batch_id):
+    def get_pretrain_batch(self, split, batch_id):
         """
 
         Parameters
         ----------
         batch_id
+        split: {'train', 'val', 'test'}
 
         Returns
         -------
@@ -172,9 +201,9 @@ class StoryLoader(object):
             tgt_sen: (batch_size x max_tgt_len)
         """
         if self.mode == 'merged':
-            assert batch_id <= self.pre_train_num_batches
-            x = self.splits['pre_train'][batch_id]
-            y = self.splits['pre_train_tgt'][batch_id]
+            # pre_train_tgt
+            x = self.splits['pre_' + split][batch_id]
+            y = self.splits['pre_' + split + '_tgt'][batch_id]
             return x, y
         else:
             raise NotImplementedError
@@ -220,7 +249,13 @@ if __name__ == '__main__':
                          batch_size=50, src_seq_len=65,
                          tgt_seq_len=20, mode='merged')
 
-    loader.get_pretrain_batch(1)
+    loader.get_pretrain_batch('train', 1)
+    loader.get_pretrain_batch('val', 1)
+
+    print "pretrain num: ", loader.pretrain_num_batches
+    print "preval num: ", loader.preval_num_batches
+    print "pretest num: ", loader.pretest_num_batches
+
     loader.get_batch('train', 1)
     x, (y, y_2), label = loader.get_batch('val', 2)
 
