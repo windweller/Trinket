@@ -5,7 +5,7 @@ from theano import tensor as T
 from ug_utils import floatX, Dropout, save_model_params, load_model_params
 from rnn import (RNN, SequenceLogisticRegression, LogisticRegression, GRULayer, GRULayerAttention,
                  LayerWrapper, seq_cat_crossent, Downscale, cross_entropy)
-from encdec_shared import BiRNNEncoder, reverse_sent, RNNEncoder, RNNDecoderAttention, RNNDecoder
+from encdec_shared import BiRNNEncoder, reverse_sent, RNNEncoder, RNNDecoderAttention, RNNDecoder, BiPyrRNNEncoder
 from opt import get_opt_fn
 from ug_utils import (glorot_init, norm_init, uniform_init,
                       get_sequence_dropout_mask, _linear_params, get_parent)
@@ -83,7 +83,13 @@ class RNNTargetEncoder(RNN):
         # initial states
         # [(batch_size, rnn_dim)]
         # outputs_info = [T.zeros((target_sqn.shape[1], args.rnn_dim)).astype(floatX)]
-        outputs_info = init_states  # should be a list of things...(check RNNDecoder)
+
+        if not args.bidir:
+            outputs_info = init_states  # should be a list of things...(check RNNDecoder)
+        else:
+            # bidir gives full hs not just the last one
+            outputs_info = [s[args.src_steps - 1, T.arange(args.batch_size), :] for s in init_states]
+
         rlayers = list()
 
         target_inp1 = L_dec[target_sqn]
@@ -111,6 +117,12 @@ class RNNTargetEncoder(RNN):
         super(RNNTargetEncoder, self).__init__(rlayers, olayer, cost)
 
 
+def get_mask(sen):
+    # sen: a padded numpy array of indices
+    masked_arr = np.ma.masked_greater_equal(sen, 1)
+    return masked_arr.mask
+
+
 class StoryModelSeq2Seq(object):
     def __init__(self, args, embedding, attention=False):
         self.args = args
@@ -127,12 +139,16 @@ class StoryModelSeq2Seq(object):
         pdrop = T.scalar(dtype=floatX)
         max_norm = T.scalar(dtype=floatX)
         src_sent = T.imatrix('src_sent')  # (batch_size, time_step) We do x.T before put it in
+        src_mask = T.bmatrix('tgt_mask')
         rev_src_sent = T.imatrix('rev_src_sent')  # for reverse, use reverse_sent()
         tgt_sent = T.imatrix('tgt_sent')
+        # tgt_mask = T.bmatrix('tgt_mask')
         space_mask = T.bmatrix('space_mask')
 
-        src_mask = T.ones_like(src_sent).astype(floatX)  # this is used to drop words? Now we don't
-        tgt_mask = T.ones_like(tgt_sent).astype(floatX)  # this is used to drop words? Now we don't
+        # src_mask = T.ones_like(src_sent).astype(floatX)  # this is used to drop words? Now we don't
+        # we are using tgt_mask as 1, because we are doing some vector operations
+        # it's hard to predict what the target mask should look like
+        tgt_mask = T.ones_like(tgt_sent).astype(floatX)
 
         # we are taking a 2nd target sentence for
         # target encoder
@@ -144,6 +160,10 @@ class StoryModelSeq2Seq(object):
             # x, xr, mask, space_mask, L_enc, pdrop, args
             self.encoder = BiRNNEncoder(src_sent.T, rev_src_sent.T, src_mask.T, space_mask.T, self.embedding, pdrop,
                                         args)
+        elif args.pyr:
+            print 'Using birdirectional Pyramid GRU encoder'
+            self.encoder = BiPyrRNNEncoder(src_sent.T, rev_src_sent.T, src_mask.T, self.embedding, pdrop,
+                                           args)
         else:
             print 'Using unidirectional GRU encoder'
             self.encoder = RNNEncoder(src_sent.T, src_mask.T, space_mask.T, self.embedding, pdrop, args)
@@ -175,16 +195,18 @@ class StoryModelSeq2Seq(object):
                 lr, max_norm=max_norm)
             self.pretrain_nparams = np.sum([np.prod(p.shape.eval()) for p in self.pretrain_params])
 
+            # src_sent, src_mask, rev_src_sent, tgt_sent, tgt_mask, space_mask
             self.pretrain = theano.function(
-                inputs=[src_sent, tgt_sent, pdrop, lr, max_norm],
+                inputs=[src_sent, src_mask, rev_src_sent, tgt_sent, pdrop, lr, max_norm],
                 outputs=[self.pretrain_cost, self.pretrain_grad_norm, self.pretrain_param_norm],
                 updates=self.pretrain_updates,
                 on_unused_input='warn',
                 allow_input_downcast=True
             )
 
+            # src_sent, src_mask, rev_src_sent, tgt_sent, tgt_mask
             self.pretrain_test = theano.function(
-                inputs=[src_sent, tgt_sent, theano.In(pdrop, value=0.0)],
+                inputs=[src_sent, src_mask, rev_src_sent, tgt_sent, theano.In(pdrop, value=0.0)],
                 outputs=[self.pretrain_cost],
                 updates=None,
                 on_unused_input='warn',
@@ -203,35 +225,22 @@ class StoryModelSeq2Seq(object):
         self.nparams = np.sum([np.prod(p.shape.eval()) for p in self.params])
 
         # functions
-        if args.bidir:
-            self.train = theano.function(
-                inputs=[src_sent, rev_src_sent, tgt_sent, tgt2_sent, labels,
-                        pdrop, lr, max_norm],
-                outputs=[self.cost, self.grad_norm, self.param_norm, self.tgt_encoder.olayer.y_pred],
-                updates=self.updates,
-                on_unused_input='warn',
-                allow_input_downcast=True
-            )
-            self.test = theano.function(
-                inputs=[src_sent, rev_src_sent, tgt_sent, tgt2_sent, labels, theano.In(pdrop, value=0.0)],
-                outputs=[self.cost, self.tgt_encoder.olayer.y_pred],
-                updates=None,
-                on_unused_input='warn'
-            )
-        else:
-            self.train = theano.function(
-                inputs=[src_sent, tgt_sent, tgt2_sent, labels, pdrop, lr, max_norm],
-                outputs=[self.cost, self.grad_norm, self.param_norm, self.tgt_encoder.olayer.y_pred],
-                updates=self.updates,
-                on_unused_input='warn',
-                allow_input_downcast=True
-            )
-            self.test = theano.function(
-                inputs=[src_sent, tgt_sent, tgt2_sent, labels, theano.In(pdrop, value=0.0)],
-                outputs=[self.cost, self.tgt_encoder.olayer.y_pred],
-                updates=None,
-                on_unused_input='warn'
-            )
+        # src_sent, src_mask, rev_src_sent, tgt_sent, tgt_mask, space_mask
+        self.train = theano.function(
+            inputs=[src_sent, src_mask, rev_src_sent, tgt_sent, tgt2_sent, labels, pdrop, lr, max_norm],
+            outputs=[self.cost, self.grad_norm, self.param_norm, self.tgt_encoder.olayer.y_pred],
+            updates=self.updates,
+            on_unused_input='warn',
+            allow_input_downcast=True
+        )
+
+        # src_sent, src_mask, rev_src_sent, tgt_sent, tgt_mask
+        self.test = theano.function(
+            inputs=[src_sent, src_mask, rev_src_sent, tgt_sent, tgt2_sent, labels, theano.In(pdrop, value=0.0)],
+            outputs=[self.cost, self.tgt_encoder.olayer.y_pred],
+            updates=None,
+            on_unused_input='warn'
+        )
 
         if args.pretrain:
             # sample ending:
@@ -281,11 +290,15 @@ if __name__ == '__main__':
     parser.add_argument('--max_norm', type=float, default=5.0, help='norm at which to rescale gradients')
     parser.add_argument('--dropout', type=float, default=0.0,
                         help='dropout (fraction of units randomly dropped on non-recurrent connections)')
+    parser.add_argument('--pre_dropout', type=float, default=0.0,
+                        help='dropout rate for generative pretrain model')
     parser.add_argument('--recdrop', action='store_true',
                         help='use dropout on recurrent updates if True, use stocdrop if False')  # we don't use this
     parser.add_argument('--stocdrop', type=float, default=0.0,
                         help='use to set droprate for stocdrop or recdrop')  # won't use this either
     parser.add_argument('--bidir', action='store_true', help='whether to use bidirectional (GRU)')  # bidir by default
+    parser.add_argument('--pyr', action='store_true',
+                        help='whether to use pyramid bidirectional GRU')  # bidir by default
     parser.add_argument('--src_steps', type=int, default=65, help='source sequence length')
     parser.add_argument('--tgt_steps', type=int, default=20, help='target sequence length')
     parser.add_argument('--label_size', type=int, default=2, help='number of labels that we need to predict')
@@ -360,6 +373,8 @@ if __name__ == '__main__':
     if args.save_err:
         import sys
 
+        # TODO: currently broken!!!!!!!!!
+
         logger.info('inspecting model: ' + args.load_model)
         with open(pjoin(args.load_model, 'costs.pkl'), 'rb') as fin:
             mean_valid_costs, all_train_costs, final_test_cost, \
@@ -405,7 +420,8 @@ if __name__ == '__main__':
         for epoch in xrange(start_epoch, args.epochs):
             # still want to decay learning rate
             if epoch >= args.lr_decay_after:
-                if len(pretrain_mean_valid_costs) > 1 and pretrain_mean_valid_costs[-2] - pretrain_mean_valid_costs[-1] < args.lr_decay_threshold:
+                if len(pretrain_mean_valid_costs) > 1 and pretrain_mean_valid_costs[-2] - pretrain_mean_valid_costs[
+                    -1] < args.lr_decay_threshold:
                     decayed += 1
                     if pretrain_mean_valid_costs[-2] - pretrain_mean_valid_costs[-1] < 0:
                         logger.info('changing parameters back to epoch %d' % (epoch - 1))
@@ -422,8 +438,10 @@ if __name__ == '__main__':
                 tic = time.time()
                 it += 1
                 x, y = loader.get_pretrain_batch('train', k)
-                # src_sent, tgt_sent, pdrop, lr, max_norm
-                ret = story_model.pretrain(x, y, args.dropout, lr, args.max_norm)
+                # src_sent, src_mask, rev_src_sent, tgt_sent, pdrop, lr, max_norm
+                x_mask = get_mask(x)
+                x_rev = reverse_sent(x, x_mask)
+                ret = story_model.pretrain(x, x_mask, x_rev, y, args.pre_dropout, lr, args.max_norm)
                 cost, grad_norm, param_norm = ret[0:3]
 
                 norm_ratio = grad_norm / param_norm
@@ -447,8 +465,11 @@ if __name__ == '__main__':
             valid_accu = []
             for k in xrange(loader.preval_num_batches):
                 x, y = loader.get_pretrain_batch('val', k)
+                x_mask = get_mask(x)
+                x_rev = reverse_sent(x, x_mask)
 
-                ret = story_model.pretrain_test(x, y, 0.0)
+                # src_sent, src_mask, rev_src_sent, tgt_sent, pdrop
+                ret = story_model.pretrain_test(x, x_mask, x_rev, y, 0.0)
                 cost = ret[0]
 
                 pretrain_all_valid_costs.append(cost)
@@ -462,7 +483,6 @@ if __name__ == '__main__':
             logger.info('saving model')
             save_model_params(story_model, pjoin(args.expdir, 'pretrain_model_epoch%d.pk' % epoch))
 
-
         best_valid_epoch = sorted(pretrain_epoch_cost_dict, key=pretrain_epoch_cost_dict.get)[0]
         # restore model at best validation epoch
         load_model_params(story_model, pjoin(args.expdir, 'pretrain_model_epoch%d.pk' % best_valid_epoch))
@@ -470,7 +490,10 @@ if __name__ == '__main__':
         test_costs = list()
         for k in xrange(loader.test_num_batches):
             x, y = loader.get_pretrain_batch('test', k)
-            ret = story_model.pretrain_test(x, y, 0.0)
+            x_mask = get_mask(x)
+            x_rev = reverse_sent(x, x_mask)
+            # src_sent, src_mask, rev_src_sent, tgt_sent, pdrop
+            ret = story_model.pretrain_test(x, x_mask, x_rev, y, 0.0)
             cost = ret[0]
 
             test_costs.append(cost)
@@ -519,8 +542,10 @@ if __name__ == '__main__':
             tic = time.time()
             it += 1
             x, (y, y_2), real_label = loader.get_batch('train', k)
-            # [src_sent, tgt_sent, labels, pdrop, lr, max_norm]
-            ret = story_model.train(x, y, y_2, real_label, args.dropout, lr, args.max_norm)
+            x_mask = get_mask(x)
+            x_rev = reverse_sent(x, x_mask)
+            # src_sent, src_mask, rev_src_sent, tgt_sent, tgt2_sent, labels, pdrop, lr, max_norm
+            ret = story_model.train(x, x_mask, x_rev, y, y_2, real_label, args.dropout, lr, args.max_norm)
             cost, grad_norm, param_norm, train_preds = ret[0:4]
 
             train_accuracy = np.mean(real_label == train_preds)
@@ -548,8 +573,10 @@ if __name__ == '__main__':
         valid_accu = []
         for k in xrange(loader.val_num_batches):
             x, (y, y_2), real_label = loader.get_batch('val', k)
-            # [src_sent, tgt_sent, labels, theano.In(pdrop, value=0.0)]
-            ret = story_model.test(x, y, y_2, real_label, 0.0)
+            x_mask = get_mask(x)
+            x_rev = reverse_sent(x, x_mask)
+            # src_sent, src_mask, rev_src_sent, tgt_sent, tgt2_sent, labels, pdrop
+            ret = story_model.test(x, x_mask, x_rev, y, y_2, real_label, 0.0)
             cost, preds = ret[0:2]
 
             val_accuracy = np.mean(real_label == preds)
@@ -579,7 +606,10 @@ if __name__ == '__main__':
     test_costs = list()
     for k in xrange(loader.test_num_batches):
         x, (y, y_2), real_label = loader.get_batch('test', k)
-        ret = story_model.test(x, y, y_2, real_label, 0.0)
+        x_mask = get_mask(x)
+        x_rev = reverse_sent(x, x_mask)
+        # src_sent, src_mask, rev_src_sent, tgt_sent, tgt2_sent, labels, pdrop
+        ret = story_model.test(x, x_mask, x_rev, y, y_2, real_label, 0.0)
         cost, preds = ret[0:2]
 
         accu = np.mean(real_label == preds)
