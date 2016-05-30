@@ -88,7 +88,8 @@ class RNNTargetEncoder(RNN):
             outputs_info = init_states  # should be a list of things...(check RNNDecoder)
         else:
             # bidir gives full hs not just the last one
-            outputs_info = [s[args.src_steps - 1, T.arange(args.batch_size), :] for s in init_states]
+            outputs_info = [s[args.src_steps - 1, T.arange(args.batch_size), :] + s[0, T.arange(args.batch_size), :]
+                            for s in init_states]
 
         rlayers = list()
 
