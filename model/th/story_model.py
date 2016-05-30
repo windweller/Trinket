@@ -84,7 +84,7 @@ class RNNTargetEncoder(RNN):
         # [(batch_size, rnn_dim)]
         # outputs_info = [T.zeros((target_sqn.shape[1], args.rnn_dim)).astype(floatX)]
 
-        if not args.bidir:
+        if not args.bidir and not args.pyr:
             outputs_info = init_states  # should be a list of things...(check RNNDecoder)
         else:
             # bidir gives full hs not just the last one
