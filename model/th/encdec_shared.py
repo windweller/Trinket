@@ -151,9 +151,9 @@ class BiPyrRNNEncoder(RNN):
         binp = bsubset.reshape((x.shape[0], x.shape[1], L_enc.shape[1]))
         fseqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
         bseqmask = get_sequence_dropout_mask((x.shape[0], x.shape[1], L_enc.shape[1]), pdrop)
-        finplayer = GRULayer(finp.astype(floatX), mask, fseqmask, args.rnn_dim, outputs_info,
+        finplayer = GRULayer(finp.astype(floatX), mask, fseqmask, args.input_size, outputs_info,
                 args, suffix='fenc0')
-        binplayer = GRULayer(binp.astype(floatX), mask, bseqmask, args.rnn_dim, outputs_info,
+        binplayer = GRULayer(binp.astype(floatX), mask, bseqmask, args.input_size, outputs_info,
                 args, suffix='benc0', backwards=True)
         flayers.append(finplayer)
         blayers.append(binplayer)
