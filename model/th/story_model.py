@@ -324,6 +324,8 @@ if __name__ == '__main__':
                         help='will save test/validation result to a csv file in expdir')
     parser.add_argument('--load_model', type=str, default='',
                         help='load a specific epoch and run only once to inspect the model, only put directory path, will automatically load best epoch.')
+    parser.add_argument('--vis_style', type=str, default='real', choices=['spatial'],
+                        help='spatial projects all training stories into a space (save final source encode into a file)')
 
     args = parser.parse_args()
 
@@ -349,7 +351,7 @@ if __name__ == '__main__':
         # we train on validation/test sets
         loader = StoryLoader(STORY_DATA_PATH,
                              batch_size=args.batch_size, src_seq_len=65,
-                             tgt_seq_len=20, train_frac=0.9, valid_frac=0.05, mode='merged')
+                             tgt_seq_len=20, train_frac=0.45, valid_frac=0.05, mode='merged')
     else:
         # we only train on 40% of validation for the target encoder
         loader = StoryLoader(STORY_DATA_PATH,
@@ -402,6 +404,11 @@ if __name__ == '__main__':
             save_result(loc, x, y, y_2, real_label, preds, idx_word_map)
 
         sys.exit(0)
+
+    if args.load_model:
+        import sys
+        logger.info('visualizing model: ' + args.load_model)
+        
 
     lr = args.lr
 
