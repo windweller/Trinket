@@ -1,0 +1,24 @@
+------ training ------
+             precision    recall  f1-score   support
+
+          0       1.00      1.00      1.00      1709
+          1       1.00      1.00      1.00      1641
+
+avg / total       1.00      1.00      1.00      3350
+
+------ validation ------
+             precision    recall  f1-score   support
+
+          0       0.64      0.65      0.65       110
+          1       0.57      0.56      0.56        90
+
+avg / total       0.61      0.61      0.61       200
+
+------ test ------
+             precision    recall  f1-score   support
+
+          0       0.72      0.67      0.70        82
+          1       0.64      0.69      0.66        68
+
+avg / total       0.68      0.68      0.68       150
+

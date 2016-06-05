@@ -107,7 +107,7 @@ def embed(set_data):
 	return (np.array(y), X_as_dicts, dimensions)
 
 train_y, train_X_as_dicts, train_dims = embed(train)
-print train_y[:10]
+
 val_y, val_X_as_dicts, val_dims = embed(val)
 test_y, test_X_as_dicts, test_dims = embed(test)
 
@@ -117,12 +117,21 @@ v = DictVectorizer(sparse=True)
 X_all = v.fit_transform(train_X_as_dicts + val_X_as_dicts + test_X_as_dicts)
 X_train = X_all[train_start:train_end]
 X_val = X_all[val_start:val_end] 
+X_test = X_all[test_start:test_end] 
 
-# mod = LogisticRegression(fit_intercept=True)
+mod = LogisticRegression(fit_intercept=True)
 # mod = svm.SVC(kernel='rbf', verbose=True)
-mod = svm.SVC(kernel='linear', verbose=True)
+# mod = svm.SVC(kernel='linear', verbose=True)
 mod.fit(X_train, train_y)
+
+print('------ training ------')
 predictions = mod.predict(X_train)
 print(classification_report(train_y, predictions))
+
+print('------ validation ------')
 predictions = mod.predict(X_val)
 print(classification_report(val_y, predictions))
+
+print('------ test ------')
+predictions = mod.predict(X_test)
+print(classification_report(test_y, predictions))
